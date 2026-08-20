@@ -23,6 +23,8 @@ using llvm::offload::InvalidArgumentError;
 using llvm::offload::InvalidConfigurationError;
 using llvm::offload::InvalidDeviceError;
 using llvm::offload::InvalidKernelError;
+using llvm::offload::waitOnBlockingStreams;
+using llvm::offload::waitOnLegacyDefaultStream;
 
 /// Internal kernel launch implementation
 ol_result_t __llvmLaunchKernelImpl(const char *KernelID, dim3 GridDim,
