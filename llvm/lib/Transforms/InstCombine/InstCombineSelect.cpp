@@ -4445,16 +4445,31 @@ static Value *foldSelectBitTest(SelectInst &Sel, Value *CondVal, Value *TrueVal,
   Value *CmpLHS, *CmpRHS;
 
   if (match(CondVal, m_ICmp(Pred, m_Value(CmpLHS), m_Value(CmpRHS)))) {
+    // computeKnownBits handles pointers, but the folds zext/trunc V.
+    if (!CmpLHS->getType()->isIntOrIntVectorTy())
+      return nullptr;
+
     if (ICmpInst::isEquality(Pred)) {
       if (!match(CmpRHS, m_Zero()))
         return nullptr;
 
       V = CmpLHS;
       const APInt *AndRHS;
-      if (!match(CmpLHS, m_And(m_Value(), m_Power2(AndRHS))))
-        return nullptr;
-
-      AndMask = *AndRHS;
+      if (match(CmpLHS, m_And(m_Value(), m_Power2(AndRHS)))) {
+        AndMask = *AndRHS;
+      } else {
+        // No explicit mask: known bits may still restrict V to a single bit.
+        // Without an and to remove, only fold when V already has the select's
+        // type. Otherwise the result needs a cast plus a shift, which is no
+        // cheaper than icmp+select and blocks later folds of the select with
+        // its users.
+        if (V->getType() != SelType)
+          return nullptr;
+        AndMask =
+            computeKnownBits(V, SQ.getWithInstruction(&Sel)).getMaxValue();
+        if (!AndMask.isPowerOf2())
+          return nullptr;
+      }
     } else if (auto Res = decomposeBitTestICmp(CmpLHS, CmpRHS, Pred)) {
       assert(ICmpInst::isEquality(Res->Pred) && "Not equality test?");
       AndMask = Res->Mask;

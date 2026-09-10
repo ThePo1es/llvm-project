@@ -953,8 +953,7 @@ define i32 @select_icmp_bittest_assume(i32 %a) {
 ; CHECK-LABEL: @select_icmp_bittest_assume(
 ; CHECK-NEXT:    [[C:%.*]] = icmp ult i32 [[A:%.*]], 2
 ; CHECK-NEXT:    call void @llvm.assume(i1 [[C]])
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A]], 0
-; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 1, i32 2
+; CHECK-NEXT:    [[RES:%.*]] = add nuw nsw i32 [[A]], 1
 ; CHECK-NEXT:    ret i32 [[RES]]
 ;
   %c = icmp ult i32 %a, 2
@@ -966,8 +965,7 @@ define i32 @select_icmp_bittest_assume(i32 %a) {
 
 define i32 @select_icmp_bittest_range_eq(i32 range(i32 0, 2) %a) {
 ; CHECK-LABEL: @select_icmp_bittest_range_eq(
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A:%.*]], 0
-; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 1, i32 2
+; CHECK-NEXT:    [[RES:%.*]] = add nuw nsw i32 [[A:%.*]], 1
 ; CHECK-NEXT:    ret i32 [[RES]]
 ;
   %cmp = icmp eq i32 %a, 0
@@ -977,8 +975,7 @@ define i32 @select_icmp_bittest_range_eq(i32 range(i32 0, 2) %a) {
 
 define i32 @select_icmp_bittest_range_ne(i32 range(i32 0, 2) %a) {
 ; CHECK-LABEL: @select_icmp_bittest_range_ne(
-; CHECK-NEXT:    [[CMP_NOT:%.*]] = icmp eq i32 [[A:%.*]], 0
-; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP_NOT]], i32 1, i32 2
+; CHECK-NEXT:    [[RES:%.*]] = add nuw nsw i32 [[A:%.*]], 1
 ; CHECK-NEXT:    ret i32 [[RES]]
 ;
   %cmp = icmp ne i32 %a, 0
@@ -988,8 +985,7 @@ define i32 @select_icmp_bittest_range_ne(i32 range(i32 0, 2) %a) {
 
 define i32 @select_icmp_bittest_range_or(i32 range(i32 0, 2) %a) {
 ; CHECK-LABEL: @select_icmp_bittest_range_or(
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A:%.*]], 0
-; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 4, i32 5
+; CHECK-NEXT:    [[RES:%.*]] = or disjoint i32 [[A:%.*]], 4
 ; CHECK-NEXT:    ret i32 [[RES]]
 ;
   %cmp = icmp eq i32 %a, 0
@@ -999,8 +995,7 @@ define i32 @select_icmp_bittest_range_or(i32 range(i32 0, 2) %a) {
 
 define i32 @select_icmp_bittest_range_zero_arm(i32 range(i32 0, 2) %a) {
 ; CHECK-LABEL: @select_icmp_bittest_range_zero_arm(
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A:%.*]], 0
-; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 0, i32 8
+; CHECK-NEXT:    [[RES:%.*]] = shl nuw nsw i32 [[A:%.*]], 3
 ; CHECK-NEXT:    ret i32 [[RES]]
 ;
   %cmp = icmp eq i32 %a, 0
@@ -1043,8 +1038,7 @@ define i32 @select_icmp_bittest_assume_mid_bit(i32 %a) {
 ; CHECK-NEXT:    [[M:%.*]] = and i32 [[A:%.*]], -5
 ; CHECK-NEXT:    [[C:%.*]] = icmp eq i32 [[M]], 0
 ; CHECK-NEXT:    call void @llvm.assume(i1 [[C]])
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A]], 0
-; CHECK-NEXT:    [[A_LOBIT:%.*]] = select i1 [[CMP]], i32 0, i32 2
+; CHECK-NEXT:    [[A_LOBIT:%.*]] = lshr exact i32 [[A]], 1
 ; CHECK-NEXT:    ret i32 [[A_LOBIT]]
 ;
   %m = and i32 %a, -5
@@ -1059,8 +1053,7 @@ define i32 @select_icmp_bittest_assume_mid_bit(i32 %a) {
 
 define i32 @select_icmp_bittest_range_smax(i32 range(i32 0, 2) %a) {
 ; CHECK-LABEL: @select_icmp_bittest_range_smax(
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A:%.*]], 0
-; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 2147483647, i32 -2147483648
+; CHECK-NEXT:    [[RES:%.*]] = add nuw i32 [[A:%.*]], 2147483647
 ; CHECK-NEXT:    ret i32 [[RES]]
 ;
   %cmp = icmp eq i32 %a, 0
@@ -1070,8 +1063,7 @@ define i32 @select_icmp_bittest_range_smax(i32 range(i32 0, 2) %a) {
 
 define <2 x i32> @select_icmp_bittest_range_vec(<2 x i32> range(i32 0, 2) %a) {
 ; CHECK-LABEL: @select_icmp_bittest_range_vec(
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq <2 x i32> [[A:%.*]], zeroinitializer
-; CHECK-NEXT:    [[RES:%.*]] = select <2 x i1> [[CMP]], <2 x i32> splat (i32 1), <2 x i32> splat (i32 2)
+; CHECK-NEXT:    [[RES:%.*]] = add nuw nsw <2 x i32> [[A:%.*]], splat (i32 1)
 ; CHECK-NEXT:    ret <2 x i32> [[RES]]
 ;
   %cmp = icmp eq <2 x i32> %a, zeroinitializer
@@ -1086,8 +1078,7 @@ define i32 @select_icmp_bittest_assume_high_bit(i32 %a) {
 ; CHECK-NEXT:    [[M:%.*]] = and i32 [[A:%.*]], 2147483647
 ; CHECK-NEXT:    [[Z:%.*]] = icmp eq i32 [[M]], 0
 ; CHECK-NEXT:    call void @llvm.assume(i1 [[Z]])
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A]], 0
-; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 1, i32 -2147483647
+; CHECK-NEXT:    [[RES:%.*]] = or disjoint i32 [[A]], 1
 ; CHECK-NEXT:    ret i32 [[RES]]
 ;
   %m = and i32 %a, 2147483647
@@ -1106,8 +1097,7 @@ define i32 @select_icmp_bittest_assume_and_not_pow2_mask(i32 %x) {
 ; CHECK-NEXT:    [[V:%.*]] = and i32 [[X:%.*]], 3
 ; CHECK-NEXT:    [[C:%.*]] = icmp samesign ult i32 [[V]], 2
 ; CHECK-NEXT:    call void @llvm.assume(i1 [[C]])
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[V]], 0
-; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 1, i32 2
+; CHECK-NEXT:    [[RES:%.*]] = add nuw nsw i32 [[V]], 1
 ; CHECK-NEXT:    ret i32 [[RES]]
 ;
   %v = and i32 %x, 3
@@ -1126,8 +1116,7 @@ define i32 @select_icmp_bittest_dominating_branch(i32 %a) {
 ; CHECK-NEXT:    [[C:%.*]] = icmp ult i32 [[A:%.*]], 2
 ; CHECK-NEXT:    br i1 [[C]], label [[IF:%.*]], label [[ELSE:%.*]]
 ; CHECK:       if:
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A]], 0
-; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 1, i32 2
+; CHECK-NEXT:    [[RES:%.*]] = add nuw nsw i32 [[A]], 1
 ; CHECK-NEXT:    ret i32 [[RES]]
 ; CHECK:       else:
 ; CHECK-NEXT:    ret i32 0
@@ -1147,7 +1136,7 @@ define i32 @select_icmp_bittest_range_multiuse_cmp(i32 range(i32 0, 2) %a, ptr %
 ; CHECK-LABEL: @select_icmp_bittest_range_multiuse_cmp(
 ; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A:%.*]], 0
 ; CHECK-NEXT:    store i1 [[CMP]], ptr [[P:%.*]], align 1
-; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 1, i32 2
+; CHECK-NEXT:    [[RES:%.*]] = add nuw nsw i32 [[A]], 1
 ; CHECK-NEXT:    ret i32 [[RES]]
 ;
   %cmp = icmp eq i32 %a, 0
@@ -1162,9 +1151,8 @@ define i32 @select_icmp_bittest_range_multiuse_cmp(i32 range(i32 0, 2) %a, ptr %
 
 define i32 @select_icmp_bittest_range_binop_or_shift(i32 range(i32 0, 2) %a, i32 %y) {
 ; CHECK-LABEL: @select_icmp_bittest_range_binop_or_shift(
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A:%.*]], 0
-; CHECK-NEXT:    [[OR:%.*]] = or i32 [[Y:%.*]], 8
-; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 [[Y]], i32 [[OR]]
+; CHECK-NEXT:    [[TMP1:%.*]] = shl nuw nsw i32 [[A:%.*]], 3
+; CHECK-NEXT:    [[RES:%.*]] = or i32 [[Y:%.*]], [[TMP1]]
 ; CHECK-NEXT:    ret i32 [[RES]]
 ;
   %cmp = icmp eq i32 %a, 0
@@ -1175,9 +1163,9 @@ define i32 @select_icmp_bittest_range_binop_or_shift(i32 range(i32 0, 2) %a, i32
 
 define i32 @select_icmp_bittest_range_binop_or_shift_swapped(i32 range(i32 0, 2) %a, i32 %y) {
 ; CHECK-LABEL: @select_icmp_bittest_range_binop_or_shift_swapped(
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A:%.*]], 0
-; CHECK-NEXT:    [[OR:%.*]] = or i32 [[Y:%.*]], 8
-; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 [[OR]], i32 [[Y]]
+; CHECK-NEXT:    [[TMP1:%.*]] = shl nuw nsw i32 [[A:%.*]], 3
+; CHECK-NEXT:    [[TMP2:%.*]] = xor i32 [[TMP1]], 8
+; CHECK-NEXT:    [[RES:%.*]] = or i32 [[Y:%.*]], [[TMP2]]
 ; CHECK-NEXT:    ret i32 [[RES]]
 ;
   %cmp = icmp eq i32 %a, 0
@@ -1188,9 +1176,8 @@ define i32 @select_icmp_bittest_range_binop_or_shift_swapped(i32 range(i32 0, 2)
 
 define i32 @select_icmp_bittest_range_binop_add_shift(i32 range(i32 0, 2) %a, i32 %y) {
 ; CHECK-LABEL: @select_icmp_bittest_range_binop_add_shift(
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A:%.*]], 0
-; CHECK-NEXT:    [[ADD:%.*]] = add i32 [[Y:%.*]], 8
-; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 [[Y]], i32 [[ADD]]
+; CHECK-NEXT:    [[TMP1:%.*]] = shl nuw nsw i32 [[A:%.*]], 3
+; CHECK-NEXT:    [[RES:%.*]] = add i32 [[Y:%.*]], [[TMP1]]
 ; CHECK-NEXT:    ret i32 [[RES]]
 ;
   %cmp = icmp eq i32 %a, 0
@@ -1201,9 +1188,8 @@ define i32 @select_icmp_bittest_range_binop_add_shift(i32 range(i32 0, 2) %a, i3
 
 define i32 @select_icmp_bittest_range_binop_xor_shift(i32 range(i32 0, 2) %a, i32 %y) {
 ; CHECK-LABEL: @select_icmp_bittest_range_binop_xor_shift(
-; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A:%.*]], 0
-; CHECK-NEXT:    [[XOR:%.*]] = xor i32 [[Y:%.*]], 8
-; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 [[Y]], i32 [[XOR]]
+; CHECK-NEXT:    [[TMP1:%.*]] = shl nuw nsw i32 [[A:%.*]], 3
+; CHECK-NEXT:    [[RES:%.*]] = xor i32 [[Y:%.*]], [[TMP1]]
 ; CHECK-NEXT:    ret i32 [[RES]]
 ;
   %cmp = icmp eq i32 %a, 0
