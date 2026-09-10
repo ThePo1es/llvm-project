@@ -4422,6 +4422,22 @@ static Value *foldSelectBitTest(SelectInst &Sel, Value *CondVal, Value *TrueVal,
   if (SelType->isVectorTy() != CondVal->getType()->isVectorTy())
     return nullptr;
 
+  // Both folds below need the select arms to be constants, or to differ by a
+  // binop with a power-of-two constant. With constant arms, foldSelectICmpAnd
+  // can only succeed if they differ by a single bit (or/xor) or by a power of
+  // two (add/sub). Check that before doing any potentially expensive analysis
+  // of the condition.
+  const APInt *TC, *FC;
+  bool ConstArmsCanFold =
+      match(TrueVal, m_APInt(TC)) && match(FalseVal, m_APInt(FC)) &&
+      ((*TC ^ *FC).isPowerOf2() || (*TC - *FC).isPowerOf2() ||
+       (*FC - *TC).isPowerOf2());
+  bool BinOpArmsCanFold =
+      match(FalseVal, m_BinOp(m_Specific(TrueVal), m_Power2())) ||
+      match(TrueVal, m_BinOp(m_Specific(FalseVal), m_Power2()));
+  if (!ConstArmsCanFold && !BinOpArmsCanFold)
+    return nullptr;
+
   Value *V;
   APInt AndMask;
   bool CreateAnd = false;
