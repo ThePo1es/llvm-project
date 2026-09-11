@@ -514,6 +514,7 @@ define i32 @test15j(i32 %X) {
 }
 
 declare void @use1(i1)
+declare void @llvm.assume(i1)
 
 ; (X & 8) == 0 ? -3 : -11 --> (X & 8) ^ -3
 ; Extra cmp use ensures that cmp predicate canonicalization is thwarted.
@@ -943,4 +944,321 @@ define i16 @select_icmp_bittest_range_negative_test2(i16 range (i16 0, 512) %a) 
   %cmp = icmp ult i16 %a, 255
   %res = select i1 %cmp, i16 0, i16 255
   ret i16 %res
+}
+
+; The single-bit mask does not have to be spelled out as an and: known bits
+; from an assume or a range attribute are enough (#206708).
+
+define i32 @select_icmp_bittest_assume(i32 %a) {
+; CHECK-LABEL: @select_icmp_bittest_assume(
+; CHECK-NEXT:    [[C:%.*]] = icmp ult i32 [[A:%.*]], 2
+; CHECK-NEXT:    call void @llvm.assume(i1 [[C]])
+; CHECK-NEXT:    [[RES:%.*]] = add nuw nsw i32 [[A]], 1
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %c = icmp ult i32 %a, 2
+  call void @llvm.assume(i1 %c)
+  %cmp = icmp eq i32 %a, 0
+  %res = select i1 %cmp, i32 1, i32 2
+  ret i32 %res
+}
+
+define i32 @select_icmp_bittest_range_eq(i32 range(i32 0, 2) %a) {
+; CHECK-LABEL: @select_icmp_bittest_range_eq(
+; CHECK-NEXT:    [[RES:%.*]] = add nuw nsw i32 [[A:%.*]], 1
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %cmp = icmp eq i32 %a, 0
+  %res = select i1 %cmp, i32 1, i32 2
+  ret i32 %res
+}
+
+define i32 @select_icmp_bittest_range_ne(i32 range(i32 0, 2) %a) {
+; CHECK-LABEL: @select_icmp_bittest_range_ne(
+; CHECK-NEXT:    [[RES:%.*]] = add nuw nsw i32 [[A:%.*]], 1
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %cmp = icmp ne i32 %a, 0
+  %res = select i1 %cmp, i32 2, i32 1
+  ret i32 %res
+}
+
+define i32 @select_icmp_bittest_range_or(i32 range(i32 0, 2) %a) {
+; CHECK-LABEL: @select_icmp_bittest_range_or(
+; CHECK-NEXT:    [[RES:%.*]] = or disjoint i32 [[A:%.*]], 4
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %cmp = icmp eq i32 %a, 0
+  %res = select i1 %cmp, i32 4, i32 5
+  ret i32 %res
+}
+
+define i32 @select_icmp_bittest_range_zero_arm(i32 range(i32 0, 2) %a) {
+; CHECK-LABEL: @select_icmp_bittest_range_zero_arm(
+; CHECK-NEXT:    [[RES:%.*]] = shl nuw nsw i32 [[A:%.*]], 3
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %cmp = icmp eq i32 %a, 0
+  %res = select i1 %cmp, i32 0, i32 8
+  ret i32 %res
+}
+
+; Without an explicit and there is nothing to remove, so the fold is only
+; profitable when the select already has the compared value's type. A narrower
+; or wider select would need a cast plus a shift, which blocks later folds of
+; the select with its users.
+
+define i16 @select_icmp_bittest_range_zero_arm_narrow(i32 range(i32 0, 2) %a) {
+; CHECK-LABEL: @select_icmp_bittest_range_zero_arm_narrow(
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A:%.*]], 0
+; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i16 0, i16 8
+; CHECK-NEXT:    ret i16 [[RES]]
+;
+  %cmp = icmp eq i32 %a, 0
+  %res = select i1 %cmp, i16 0, i16 8
+  ret i16 %res
+}
+
+define i64 @select_icmp_bittest_range_zero_arm_wide(i32 range(i32 0, 2) %a) {
+; CHECK-LABEL: @select_icmp_bittest_range_zero_arm_wide(
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A:%.*]], 0
+; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i64 0, i64 1152921504606846976
+; CHECK-NEXT:    ret i64 [[RES]]
+;
+  %cmp = icmp eq i32 %a, 0
+  %res = select i1 %cmp, i64 0, i64 1152921504606846976
+  ret i64 %res
+}
+
+; The single known bit may sit above the result bit: a is 0 or 4 here, so the
+; result needs a shift.
+
+define i32 @select_icmp_bittest_assume_mid_bit(i32 %a) {
+; CHECK-LABEL: @select_icmp_bittest_assume_mid_bit(
+; CHECK-NEXT:    [[M:%.*]] = and i32 [[A:%.*]], -5
+; CHECK-NEXT:    [[C:%.*]] = icmp eq i32 [[M]], 0
+; CHECK-NEXT:    call void @llvm.assume(i1 [[C]])
+; CHECK-NEXT:    [[A_LOBIT:%.*]] = lshr exact i32 [[A]], 1
+; CHECK-NEXT:    ret i32 [[A_LOBIT]]
+;
+  %m = and i32 %a, -5
+  %c = icmp eq i32 %m, 0
+  call void @llvm.assume(i1 %c)
+  %cmp = icmp eq i32 %a, 0
+  %res = select i1 %cmp, i32 0, i32 2
+  ret i32 %res
+}
+
+; The add may only be nuw here: C + 1 overflows when C is the signed max.
+
+define i32 @select_icmp_bittest_range_smax(i32 range(i32 0, 2) %a) {
+; CHECK-LABEL: @select_icmp_bittest_range_smax(
+; CHECK-NEXT:    [[RES:%.*]] = add nuw i32 [[A:%.*]], 2147483647
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %cmp = icmp eq i32 %a, 0
+  %res = select i1 %cmp, i32 2147483647, i32 -2147483648
+  ret i32 %res
+}
+
+define <2 x i32> @select_icmp_bittest_range_vec(<2 x i32> range(i32 0, 2) %a) {
+; CHECK-LABEL: @select_icmp_bittest_range_vec(
+; CHECK-NEXT:    [[RES:%.*]] = add nuw nsw <2 x i32> [[A:%.*]], splat (i32 1)
+; CHECK-NEXT:    ret <2 x i32> [[RES]]
+;
+  %cmp = icmp eq <2 x i32> %a, zeroinitializer
+  %res = select <2 x i1> %cmp, <2 x i32> <i32 1, i32 1>, <2 x i32> <i32 2, i32 2>
+  ret <2 x i32> %res
+}
+
+; The known single bit can be the sign bit.
+
+define i32 @select_icmp_bittest_assume_high_bit(i32 %a) {
+; CHECK-LABEL: @select_icmp_bittest_assume_high_bit(
+; CHECK-NEXT:    [[M:%.*]] = and i32 [[A:%.*]], 2147483647
+; CHECK-NEXT:    [[Z:%.*]] = icmp eq i32 [[M]], 0
+; CHECK-NEXT:    call void @llvm.assume(i1 [[Z]])
+; CHECK-NEXT:    [[RES:%.*]] = or disjoint i32 [[A]], 1
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %m = and i32 %a, 2147483647
+  %z = icmp eq i32 %m, 0
+  call void @llvm.assume(i1 %z)
+  %cmp = icmp eq i32 %a, 0
+  %res = select i1 %cmp, i32 1, i32 -2147483647
+  ret i32 %res
+}
+
+; An and with a non-power-of-two mask is fine if known bits narrow it down.
+; The assume is on the and itself, so the mask cannot be shrunk beforehand.
+
+define i32 @select_icmp_bittest_assume_and_not_pow2_mask(i32 %x) {
+; CHECK-LABEL: @select_icmp_bittest_assume_and_not_pow2_mask(
+; CHECK-NEXT:    [[V:%.*]] = and i32 [[X:%.*]], 3
+; CHECK-NEXT:    [[C:%.*]] = icmp samesign ult i32 [[V]], 2
+; CHECK-NEXT:    call void @llvm.assume(i1 [[C]])
+; CHECK-NEXT:    [[RES:%.*]] = add nuw nsw i32 [[V]], 1
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %v = and i32 %x, 3
+  %c = icmp ult i32 %v, 2
+  call void @llvm.assume(i1 %c)
+  %cmp = icmp eq i32 %v, 0
+  %res = select i1 %cmp, i32 1, i32 2
+  ret i32 %res
+}
+
+; The single-bit fact can also come from a dominating branch.
+
+define i32 @select_icmp_bittest_dominating_branch(i32 %a) {
+; CHECK-LABEL: @select_icmp_bittest_dominating_branch(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[C:%.*]] = icmp ult i32 [[A:%.*]], 2
+; CHECK-NEXT:    br i1 [[C]], label [[IF:%.*]], label [[ELSE:%.*]]
+; CHECK:       if:
+; CHECK-NEXT:    [[RES:%.*]] = add nuw nsw i32 [[A]], 1
+; CHECK-NEXT:    ret i32 [[RES]]
+; CHECK:       else:
+; CHECK-NEXT:    ret i32 0
+;
+entry:
+  %c = icmp ult i32 %a, 2
+  br i1 %c, label %if, label %else
+if:
+  %cmp = icmp eq i32 %a, 0
+  %res = select i1 %cmp, i32 1, i32 2
+  ret i32 %res
+else:
+  ret i32 0
+}
+
+define i32 @select_icmp_bittest_range_multiuse_cmp(i32 range(i32 0, 2) %a, ptr %p) {
+; CHECK-LABEL: @select_icmp_bittest_range_multiuse_cmp(
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A:%.*]], 0
+; CHECK-NEXT:    store i1 [[CMP]], ptr [[P:%.*]], align 1
+; CHECK-NEXT:    [[RES:%.*]] = add nuw nsw i32 [[A]], 1
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %cmp = icmp eq i32 %a, 0
+  store i1 %cmp, ptr %p
+  %res = select i1 %cmp, i32 1, i32 2
+  ret i32 %res
+}
+
+; Non-constant arms that differ by a binop with a power-of-two constant
+; (the foldSelectICmpAndBinOp path). The constant is not the known bit
+; itself, so a shift is needed and no other fold handles these.
+
+define i32 @select_icmp_bittest_range_binop_or_shift(i32 range(i32 0, 2) %a, i32 %y) {
+; CHECK-LABEL: @select_icmp_bittest_range_binop_or_shift(
+; CHECK-NEXT:    [[TMP1:%.*]] = shl nuw nsw i32 [[A:%.*]], 3
+; CHECK-NEXT:    [[RES:%.*]] = or i32 [[Y:%.*]], [[TMP1]]
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %cmp = icmp eq i32 %a, 0
+  %or = or i32 %y, 8
+  %res = select i1 %cmp, i32 %y, i32 %or
+  ret i32 %res
+}
+
+define i32 @select_icmp_bittest_range_binop_or_shift_swapped(i32 range(i32 0, 2) %a, i32 %y) {
+; CHECK-LABEL: @select_icmp_bittest_range_binop_or_shift_swapped(
+; CHECK-NEXT:    [[TMP1:%.*]] = shl nuw nsw i32 [[A:%.*]], 3
+; CHECK-NEXT:    [[TMP2:%.*]] = xor i32 [[TMP1]], 8
+; CHECK-NEXT:    [[RES:%.*]] = or i32 [[Y:%.*]], [[TMP2]]
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %cmp = icmp eq i32 %a, 0
+  %or = or i32 %y, 8
+  %res = select i1 %cmp, i32 %or, i32 %y
+  ret i32 %res
+}
+
+define i32 @select_icmp_bittest_range_binop_add_shift(i32 range(i32 0, 2) %a, i32 %y) {
+; CHECK-LABEL: @select_icmp_bittest_range_binop_add_shift(
+; CHECK-NEXT:    [[TMP1:%.*]] = shl nuw nsw i32 [[A:%.*]], 3
+; CHECK-NEXT:    [[RES:%.*]] = add i32 [[Y:%.*]], [[TMP1]]
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %cmp = icmp eq i32 %a, 0
+  %add = add i32 %y, 8
+  %res = select i1 %cmp, i32 %y, i32 %add
+  ret i32 %res
+}
+
+define i32 @select_icmp_bittest_range_binop_xor_shift(i32 range(i32 0, 2) %a, i32 %y) {
+; CHECK-LABEL: @select_icmp_bittest_range_binop_xor_shift(
+; CHECK-NEXT:    [[TMP1:%.*]] = shl nuw nsw i32 [[A:%.*]], 3
+; CHECK-NEXT:    [[RES:%.*]] = xor i32 [[Y:%.*]], [[TMP1]]
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %cmp = icmp eq i32 %a, 0
+  %xor = xor i32 %y, 8
+  %res = select i1 %cmp, i32 %y, i32 %xor
+  ret i32 %res
+}
+
+; Negative test: the known-bits mask is not a power of two.
+
+define i32 @select_icmp_bittest_range_negative_not_pow2(i32 range(i32 0, 3) %a) {
+; CHECK-LABEL: @select_icmp_bittest_range_negative_not_pow2(
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A:%.*]], 0
+; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 1, i32 2
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %cmp = icmp eq i32 %a, 0
+  %res = select i1 %cmp, i32 1, i32 2
+  ret i32 %res
+}
+
+; Negative test: nothing is known about the compared value.
+
+define i32 @select_icmp_bittest_negative_unknown(i32 %a) {
+; CHECK-LABEL: @select_icmp_bittest_negative_unknown(
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A:%.*]], 0
+; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 1, i32 2
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %cmp = icmp eq i32 %a, 0
+  %res = select i1 %cmp, i32 1, i32 2
+  ret i32 %res
+}
+
+; Negative test: the select arms are not related by a single-bit mask.
+
+define i32 @select_icmp_bittest_range_negative_not_adjacent(i32 range(i32 0, 2) %a) {
+; CHECK-LABEL: @select_icmp_bittest_range_negative_not_adjacent(
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq i32 [[A:%.*]], 0
+; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 5, i32 9
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %cmp = icmp eq i32 %a, 0
+  %res = select i1 %cmp, i32 5, i32 9
+  ret i32 %res
+}
+
+; Negative test: non-splat constant arms are not handled.
+
+define <2 x i32> @select_icmp_bittest_range_negative_vec_non_splat(<2 x i32> range(i32 0, 2) %a) {
+; CHECK-LABEL: @select_icmp_bittest_range_negative_vec_non_splat(
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq <2 x i32> [[A:%.*]], zeroinitializer
+; CHECK-NEXT:    [[RES:%.*]] = select <2 x i1> [[CMP]], <2 x i32> <i32 1, i32 3>, <2 x i32> <i32 2, i32 4>
+; CHECK-NEXT:    ret <2 x i32> [[RES]]
+;
+  %cmp = icmp eq <2 x i32> %a, zeroinitializer
+  %res = select <2 x i1> %cmp, <2 x i32> <i32 1, i32 3>, <2 x i32> <i32 2, i32 4>
+  ret <2 x i32> %res
+}
+
+; Negative test: pointer compares are not bit tests.
+
+define i32 @select_icmp_bittest_negative_ptr(ptr %p) {
+; CHECK-LABEL: @select_icmp_bittest_negative_ptr(
+; CHECK-NEXT:    [[CMP:%.*]] = icmp eq ptr [[P:%.*]], null
+; CHECK-NEXT:    [[RES:%.*]] = select i1 [[CMP]], i32 0, i32 8
+; CHECK-NEXT:    ret i32 [[RES]]
+;
+  %cmp = icmp eq ptr %p, null
+  %res = select i1 %cmp, i32 0, i32 8
+  ret i32 %res
 }
